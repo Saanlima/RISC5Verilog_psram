@@ -116,12 +116,12 @@ MMCME2_BASE #(
   .BANDWIDTH("OPTIMIZED"),
   .CLKIN1_PERIOD(20.0),
   .CLKFBOUT_MULT_F(15.0),
-  .CLKOUT0_DIVIDE_F(5.0),
+  .CLKOUT0_DIVIDE_F(10.0),
   .CLKOUT1_DIVIDE(2),
   .CLKOUT2_DIVIDE(10),
   .CLKOUT3_DIVIDE(30)
   ) MMCME2_BASE_inst(
-  .CLKOUT0(pllclk0),   // 150 MHz
+  .CLKOUT0(pllclk0),   // 75 MHz
   .CLKOUT1(pllclk1),   // 375 MHz
   .CLKOUT2(pllclk2),   // 75 MHz
   .CLKOUT3(pllclk3),   // 25 MHz

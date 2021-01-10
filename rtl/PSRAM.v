@@ -51,7 +51,7 @@ module PSRAM (
   output reg rd_busy,             // memory controller busy read
   output reg wr_busy,             // memory controller busy write
   output reg psram_ce,
-  output reg psram_sclk,
+  output psram_sclk,
   inout psram_sio0,
   inout psram_sio1,
   inout psram_sio2,
@@ -69,7 +69,6 @@ reg [127:0] next_cache_wdata;
 reg next_wr_busy;
 reg next_rd_busy;
 reg [13:0] pscnt, next_pscnt;
-reg next_psram_sclk;
 reg next_psram_ce;
 reg psram_oe, next_psram_oe;
 reg [31:0] psram_data, next_psram_data;
@@ -86,7 +85,20 @@ IOBUF buf_data1 (.IO(psram_sio1), .O(psram_in[1]), .I(psram_out[1]), .T(psram_oe
 IOBUF buf_data2 (.IO(psram_sio2), .O(psram_in[2]), .I(psram_out[2]), .T(psram_oe));
 IOBUF buf_data3 (.IO(psram_sio3), .O(psram_in[3]), .I(psram_out[3]), .T(psram_oe));
 
-  
+ODDR #(
+  .DDR_CLK_EDGE("SAME_EDGE"),
+  .INIT(1'b0),
+  .SRTYPE("SYNC")
+) clock_forward_inst (
+  .Q(psram_sclk),
+  .C(mem_clk),
+  .CE(1'b1),
+  .D1(1'b1),
+  .D2(1'b0),
+  .R(1'b0),
+  .S(1'b0)
+);
+
 parameter [4:0]
   STARTUP = 5'd0,
   INIT1 = 5'd1,
@@ -122,7 +134,7 @@ parameter [4:0]
 
 assign psram_out = psram_data[31:28];
 
-always @ (posedge mem_clk) begin
+always @ (negedge mem_clk) begin
   if (reset) begin
     mem_wr_sync <= 1'b0;
     mem_rd_sync <= 1'b0;
@@ -134,7 +146,6 @@ always @ (posedge mem_clk) begin
     wr_busy <= 1'b0;
     rd_busy <= 1'b0;
     pscnt <= 14'd0;
-    psram_sclk <= 1'b0;
     psram_ce <= 1'b1;
     psram_oe <= 1'b1;
     psram_data <= 32'd0;
@@ -152,7 +163,6 @@ always @ (posedge mem_clk) begin
     wr_busy <= next_wr_busy;
     rd_busy <= next_rd_busy;
     pscnt <= next_pscnt;
-    psram_sclk <= next_psram_sclk;
     psram_ce <= next_psram_ce;
     psram_oe <= next_psram_oe;
     psram_data <= next_psram_data;
@@ -171,7 +181,6 @@ always @* begin
   next_wr_busy = wr_busy;
   next_rd_busy = rd_busy;
   next_pscnt = pscnt;
-  next_psram_sclk = psram_sclk;
   next_psram_ce = psram_ce;
   next_psram_oe = psram_oe;
   next_psram_data = psram_data;
@@ -182,7 +191,6 @@ always @* begin
     STARTUP: begin
       next_wr_busy = 1'b0;
       next_rd_busy = 1'b0;
-      next_psram_sclk = 1'b0;
       next_psram_ce = 1'b1;
       next_psram_oe = 1'b1;
       next_psram_data = 32'd0;
@@ -198,124 +206,87 @@ always @* begin
       next_state = INIT2;
     end
     INIT2: begin
-      next_psram_sclk = 1'b1;
-      next_state = INIT3;
-    end
-    INIT3: begin
-      next_psram_sclk = 1'b0;
       next_psram_data = {psram_data[27:0], 4'd0};
       next_psram_bitcnt = psram_bitcnt + 1'b1;
-      if (psram_bitcnt[2:0] < 3'd7)
-        next_state = INIT2;
-      else begin
+      if (psram_bitcnt[2:0] == 3'd7) begin
         next_psram_ce = 1'b1;
         next_psram_oe = 1'b1;
-        next_state = INIT4;
+        next_state = INIT3;
       end
     end
-    INIT4: begin
-      next_state = INIT5;
+    INIT3: begin
+      next_state = INIT4;
     end
-    INIT5: begin
+    INIT4: begin
       next_psram_ce = 1'b0;
       next_psram_oe = 1'b0;
       next_psram_data = 32'h10011001;
       next_psram_bitcnt = 7'd0;
-      next_state = INIT6;
+      next_state = INIT5;
+    end
+    INIT5: begin
+      next_psram_data = {psram_data[27:0], 4'd0};
+      next_psram_bitcnt = psram_bitcnt + 1'b1;
+      if (psram_bitcnt[2:0] == 3'd7) begin
+        next_psram_ce = 1'b1;
+        next_psram_oe = 1'b1;
+        next_state = INIT6;
+      end
     end
     INIT6: begin
-      next_psram_sclk = 1'b1;
       next_state = INIT7;
     end
     INIT7: begin
-      next_psram_sclk = 1'b0;
-      next_psram_data = {psram_data[27:0], 4'd0};
-      next_psram_bitcnt = psram_bitcnt + 1'b1;
-      if (psram_bitcnt[2:0] < 3'd7)
-        next_state = INIT6;
-      else begin
-        next_psram_ce = 1'b1;
-        next_psram_oe = 1'b1;
-        next_state = INIT8;
-      end
-    end
-    INIT8: begin
-      next_state = INIT9;
-    end
-    INIT9: begin
       next_psram_ce = 1'b0;
       next_psram_oe = 1'b0;
       next_psram_data = 32'h10011111;
       next_psram_bitcnt = 7'd0;
-      next_state = INIT10;
+      next_state = INIT8;
     end
-    INIT10: begin
-      next_psram_sclk = 1'b1;
-      next_state = INIT11;
-    end
-    INIT11: begin
-      next_psram_sclk = 1'b0;
+    INIT8: begin
       next_psram_data = {psram_data[27:0], 4'd0};
       next_psram_bitcnt = psram_bitcnt + 1'b1;
-      if (psram_bitcnt[4:0] < 5'd31)
-        next_state = INIT10;
-      else begin
+      if (psram_bitcnt[4:0] == 5'd31) begin
         next_psram_oe = 1'b1;
         next_psram_bitcnt = 7'd0;
         next_id_reg = 64'd0;
-        next_state = INIT12;
+        next_state = INIT9;
       end
     end
-    INIT12: begin
-      if (psram_bitcnt < 7'd63)
-        next_psram_sclk = 1'b1;
-      next_state = INIT13;
-    end
-    INIT13: begin
+    INIT9: begin
       next_id_reg = {id_reg[62:0], psram_in[1]};
-      next_psram_sclk = 1'b0;
       next_psram_bitcnt = psram_bitcnt + 1'b1;
-      if (psram_bitcnt < 7'd63)
-        next_state = INIT12;
-      else begin
+      if (psram_bitcnt == 7'd63) begin
         next_psram_ce = 1'b1;
         next_psram_bitcnt = 7'd0;
-        next_state = INIT14;
+        next_state = INIT10;
       end
     end
-    INIT14: begin
-      next_state = INIT15;
+    INIT10: begin
+      next_state = INIT11;
     end
-    INIT15: begin
+    INIT11: begin
       next_psram_ce = 1'b0;
       next_psram_oe = 1'b0;
       next_psram_data = 32'h00110101;
       next_psram_bitcnt = 7'd0;
-      next_state = INIT16;
+      next_state = INIT12;
     end
-    INIT16: begin
-      next_psram_sclk = 1'b1;
-      next_state = INIT17;
-    end
-    INIT17: begin
-      next_psram_sclk = 1'b0;
+    INIT12: begin
       next_psram_data = {psram_data[27:0], 4'd0};
       next_psram_bitcnt = psram_bitcnt + 1'b1;
-      if (psram_bitcnt[2:0] < 3'd7)
-        next_state = INIT16;
-      else begin
+      if (psram_bitcnt[2:0] == 3'd7) begin
         next_psram_ce = 1'b1;
         next_psram_oe = 1'b1;
-        next_state = INIT18;
+        next_state = INIT13;
       end
     end
-    INIT18: begin
+    INIT13: begin
       next_state = IDLE;
     end
     IDLE: begin
       next_wr_busy = 1'b0;
       next_rd_busy = 1'b0;
-      next_psram_sclk = 1'b0;
       if (mem_wr_sync) begin
         next_wr_busy = 1'b1;
         next_cache_en = 1'b1;
@@ -336,54 +307,32 @@ always @* begin
       end
     end
     READ1: begin
-      next_psram_sclk = 1'b1;
-      next_state = READ2;
-    end
-    READ2: begin
-      next_psram_sclk = 1'b0;
       next_psram_data = {psram_data[27:0], 4'd0};
       next_psram_bitcnt = psram_bitcnt + 1'b1;
-      if (psram_bitcnt[2:0] < 3'd7)
-        next_state = READ1;
-      else begin
+      if (psram_bitcnt[2:0] == 3'd7) begin
         next_psram_bitcnt = 7'd0;
         next_psram_oe = 1'b1;
+        next_state = READ2;
+      end
+    end
+    READ2: begin
+      next_psram_bitcnt = psram_bitcnt + 1'b1;
+      if (psram_bitcnt[2:0] == 3'd5) begin
+        next_psram_bitcnt = 7'd0;
         next_state = READ3;
       end
     end
     READ3: begin
-      next_psram_sclk = 1'b1;
-      next_state = READ4;
-    end
-    READ4: begin
-      next_psram_sclk = 1'b0;
-      next_psram_bitcnt = psram_bitcnt + 1'b1;
-      if (psram_bitcnt[2:0] < 3'd5)
-        next_state = READ3;
-      else begin
-        next_psram_bitcnt = 7'd0;
-        next_state = READ5;
-      end
-    end
-    READ5: begin
-      if (psram_bitcnt < 7'd127)
-        next_psram_sclk = 1'b1;
-      next_state = READ6;
-    end
-    READ6: begin
       if (psram_bitcnt[0])
         next_cache_wdata = {high_nybble, psram_in, cache_wdata[127:8]};
       else
         next_high_nybble = psram_in;
-      next_psram_sclk = 1'b0;
       next_psram_bitcnt = psram_bitcnt + 1'b1;
       if (psram_bitcnt[4:0] == 5'd31) begin
         next_cache_en = 1'b1;
         next_cache_we = 1'b1;
       end
-      if (psram_bitcnt < 7'd127)
-        next_state = READ5;
-      else begin
+      if (psram_bitcnt == 7'd127) begin
         next_psram_ce = 1'b1;
         next_psram_bitcnt = 7'd0;
         next_state = IDLE;
@@ -391,34 +340,22 @@ always @* begin
     end
 
     WRITE1: begin
-      next_psram_sclk = 1'b1;
-      next_state = WRITE2;
-    end
-    WRITE2: begin
-      next_psram_sclk = 1'b0;
       next_psram_bitcnt = psram_bitcnt + 1'b1;
-      if (psram_bitcnt[2:0] < 3'd7) begin
-        next_psram_data = {psram_data[27:0], 4'd0};
-        next_state = WRITE1;
-      end else begin
+      if (psram_bitcnt[2:0] == 3'd7) begin
         next_psram_data = {cache_rdata[7:0], cache_rdata[15:8], cache_rdata[23:16], cache_rdata[31:24]};
         next_psram_bitcnt = 7'd0;
-        next_state = WRITE3;
+        next_state = WRITE2;
+      end else begin
+        next_psram_data = {psram_data[27:0], 4'd0};
       end
     end
-    WRITE3: begin
-      next_psram_sclk = 1'b1;
-      next_state = WRITE4;
-    end
-    WRITE4: begin
-      next_psram_sclk = 1'b0;
+    WRITE2: begin
       next_psram_bitcnt = psram_bitcnt + 1'b1;
       if (psram_bitcnt == 7'd127) begin
         next_psram_ce = 1'b1;
         next_psram_oe = 1'b1;
         next_state = IDLE;
       end else begin
-        next_state = WRITE3;
         if (psram_bitcnt[2:0] < 3'd7)
           next_psram_data = {psram_data[27:0], 4'd0};
         else if (psram_bitcnt[4:3] == 2'b00)
