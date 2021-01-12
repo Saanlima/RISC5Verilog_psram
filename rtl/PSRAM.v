@@ -39,8 +39,8 @@
 module PSRAM (
   input mem_clk,
   input reset,
-  input mem_rd,                   // memory read request
-  input mem_wr,                   // memory write request
+  input mem_rd,                   // memory read request from cache
+  input mem_wr,                   // memory write request from cache
   input [23:6] waddr,             // memory write address
   input [23:6] raddr,             // memory read address
   input [127:0] cache_rdata,      // write data to memory
@@ -50,13 +50,13 @@ module PSRAM (
   output reg [1:0] cache_addr,    // cache address
   output reg rd_busy,             // memory controller busy read
   output reg wr_busy,             // memory controller busy write
-  output reg psram_ce,
-  output psram_sclk,
-  inout psram_sio0,
-  inout psram_sio1,
-  inout psram_sio2,
-  inout psram_sio3,
-  output reg [63:0] id_reg
+  output reg psram_ce,            // psram chip enable
+  output psram_sclk,              // psram clock
+  inout psram_sio0,               // psram data bit 0
+  inout psram_sio1,               // psram data bit 1
+  inout psram_sio2,               // psram data bit 2
+  inout psram_sio3,               // psram data bit 3
+  output reg [63:0] id_reg        // result of id register read
 );
 
 reg mem_wr_sync;
@@ -114,23 +114,12 @@ parameter [4:0]
   INIT11 = 5'd11,
   INIT12 = 5'd12,
   INIT13 = 5'd13,
-  INIT14 = 5'd14,
-  INIT15 = 5'd15,
-  INIT16 = 5'd16,
-  INIT17 = 5'd17,
-  INIT18 = 5'd18,
-  IDLE = 5'd19,
-  READ1 = 5'd20,
-  READ2 = 5'd21,
-  READ3 = 5'd22,
-  READ4 = 5'd23,
-  READ5 = 5'd24,
-  READ6 = 5'd25,
-  WRITE1 = 5'd26,
-  WRITE2 = 5'd27,
-  WRITE3 = 5'd28,
-  WRITE4 = 5'd29,
-  WRITE5 = 5'd30;
+  IDLE = 5'd14,
+  READ1 = 5'd15,
+  READ2 = 5'd16,
+  READ3 = 5'd17,
+  WRITE1 = 5'd18,
+  WRITE2 = 5'd19;
 
 assign psram_out = psram_data[31:28];
 
@@ -201,7 +190,7 @@ always @* begin
     INIT1: begin
       next_psram_ce = 1'b0;
       next_psram_oe = 1'b0;
-      next_psram_data = 32'h01100110;
+      next_psram_data = 32'h01100110; // reset command 1 (0x66)
       next_psram_bitcnt = 7'd0;
       next_state = INIT2;
     end
@@ -220,7 +209,7 @@ always @* begin
     INIT4: begin
       next_psram_ce = 1'b0;
       next_psram_oe = 1'b0;
-      next_psram_data = 32'h10011001;
+      next_psram_data = 32'h10011001; // reset command 2 (0x99)
       next_psram_bitcnt = 7'd0;
       next_state = INIT5;
     end
@@ -239,7 +228,7 @@ always @* begin
     INIT7: begin
       next_psram_ce = 1'b0;
       next_psram_oe = 1'b0;
-      next_psram_data = 32'h10011111;
+      next_psram_data = 32'h10011111; // read ID command (0x9F)
       next_psram_bitcnt = 7'd0;
       next_state = INIT8;
     end
@@ -268,7 +257,7 @@ always @* begin
     INIT11: begin
       next_psram_ce = 1'b0;
       next_psram_oe = 1'b0;
-      next_psram_data = 32'h00110101;
+      next_psram_data = 32'h00110101; // enter Quad mode (0x35)
       next_psram_bitcnt = 7'd0;
       next_state = INIT12;
     end
@@ -287,22 +276,20 @@ always @* begin
     IDLE: begin
       next_wr_busy = 1'b0;
       next_rd_busy = 1'b0;
+      next_psram_bitcnt = 7'd0;
+      next_cache_addr = 2'd0;
       if (mem_wr_sync) begin
         next_wr_busy = 1'b1;
         next_cache_en = 1'b1;
-        next_cache_addr = 2'd0;
         next_psram_ce = 1'b0;
         next_psram_oe = 1'b0;
-        next_psram_data = {8'h38, waddr, 6'd0};
-        next_psram_bitcnt = 7'd0;
+        next_psram_data = {8'h38, waddr, 6'd0}; // Quad write command (0x38 + address)
         next_state = WRITE1;
       end else if (mem_rd_sync) begin
         next_rd_busy = 1'b1;
-        next_cache_addr = 2'd0;
         next_psram_ce = 1'b0;
         next_psram_oe = 1'b0;
-        next_psram_data = {8'heb, raddr, 6'd0};
-        next_psram_bitcnt = 7'd0;
+        next_psram_data = {8'heb, raddr, 6'd0}; // Quad read command (0xEB + address)
         next_state = READ1;
       end
     end
@@ -335,7 +322,7 @@ always @* begin
       if (psram_bitcnt == 7'd127) begin
         next_psram_ce = 1'b1;
         next_psram_bitcnt = 7'd0;
-        next_state = IDLE;
+        next_state = INIT13;
       end
     end
 
@@ -354,7 +341,7 @@ always @* begin
       if (psram_bitcnt == 7'd127) begin
         next_psram_ce = 1'b1;
         next_psram_oe = 1'b1;
-        next_state = IDLE;
+        next_state = INIT13;
       end else begin
         if (psram_bitcnt[2:0] < 3'd7)
           next_psram_data = {psram_data[27:0], 4'd0};
@@ -362,9 +349,11 @@ always @* begin
           next_psram_data = {cache_rdata[39:32], cache_rdata[47:40], cache_rdata[55:48], cache_rdata[63:56]};
         else if (psram_bitcnt[4:3] == 2'b01)
           next_psram_data = {cache_rdata[71:64], cache_rdata[79:72], cache_rdata[87:80], cache_rdata[95:88]};
-        else if (psram_bitcnt[4:3] == 2'b10)
+        else if (psram_bitcnt[4:3] == 2'b10) begin
           next_psram_data = {cache_rdata[103:96], cache_rdata[111:104], cache_rdata[119:112], cache_rdata[127:120]};
-        else 
+          if (psram_bitcnt[6:5] < 2'd3)
+            next_cache_en = 1'b1;
+        end else 
           next_psram_data = {cache_rdata[7:0], cache_rdata[15:8], cache_rdata[23:16], cache_rdata[31:24]};
       end
     end
